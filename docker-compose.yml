@@ -1,0 +1,22 @@
+# Local development harness. The tester is a single process with no state
+# worth keeping, so this exists mostly to fix the two settings that have to
+# agree with the client under test: the port it is reachable on and the URL it
+# is told to treat as trusted.
+name: elicitationtestermcp-dev
+
+services:
+  mcp:
+    build: .
+    command:
+      - -http-address
+      - 0.0.0.0:8080
+      # Every URL scenario is derived from this one value, so it must be the
+      # URL the client is configured to trust. It defaults to this server's
+      # own stand-in authorization page, reachable at the published port.
+      - -allowed-url
+      - ${ALLOWED_URL:-http://localhost:8090/authorize}
+      # Fixed, so a restart does not strand an elicitation a client parked.
+      - -state-secret
+      - ${STATE_SECRET:-elicitationtestermcp-dev}
+    ports:
+      - "${MCP_PORT:-8090}:8080"
