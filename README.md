@@ -124,6 +124,8 @@ the expected outcome.
 | `form/optional` | yes | No required fields. | The submit control is enabled with every field empty. |
 | `form/no_fields` | yes | An object schema with an empty properties map. | Renders as a bare acknowledgement; the only answer carried is the action. |
 | `form/max_fields` | yes | Exactly as many fields as the configured field ceiling. | Renders every field. This is the largest form the client should accept. |
+| `redaction/free_text` | yes | A free-text secret, echoed back beside the canary sentence. | The submitted value may be absent from the result; hiding it is a reasonable thing for a client to do. The canary must still hash to canary_digest. If it does not, the client removed the value by rewriting the whole result and damaged unrelated text doing it. |
+| `redaction/short_values` | yes | An integer, a boolean and a three-letter enum, echoed back beside the canary sentence. | The canary must still hash to canary_digest. None of these values can be hidden by rewriting the result: 1 and 10 are in its numbers, true is in its text, and dev and prod sit inside developer and production. A client that tries destroys the result it is protecting. |
 | `form/nested_object` | **no** | A property whose type is object. | Refused: elicitation schemas are flat. |
 | `form/multi_select` | **no** | An array-of-enum multi-select property. | Refused by a client whose subset is primitives only. The MCP spec and the Go SDK do allow this shape, so a refusal here is a deliberate narrowing, not a bug. |
 | `form/titled_enum` | **no** | A oneOf const/title enum, the successor to enumNames. | Refused by an enumNames-only client. Same deliberate narrowing as form/multi_select. |
@@ -198,6 +200,22 @@ the expected outcome.
 | `error/url_required_empty` | **no** | A -32042 error with an empty elicitations array. | Reported as a plain failure. There is nothing to recover through. |
 | `error/url_required_malformed` | **no** | A -32042 error whose data is not the documented shape. | Reported as a plain failure, without a parse error escaping to the user. |
 | `error/url_required_no_id` | **no** | A -32042 error whose elicitation has no elicitationId. | Refused or given a client-side id, as in url/no_elicitation_id. |
+
+### The redaction probes
+
+`redaction/free_text` and `redaction/short_values` are the only scenarios whose
+result repeats what you submitted. They exist because a client that hides
+submitted values from its transcript is doing something reasonable, and the
+usual way to do it — replacing the value wherever it appears in the result —
+quietly destroys the rest.
+
+Each result carries a fixed `canary` sentence and its `canary_digest`.
+Re-derive the digest from the sentence you received. A mismatch means the
+client rewrote the result, and whatever it damaged in the canary it damaged in
+everything else the tool returned. The sentence is chosen so a substring
+redaction cannot miss it: it contains `1`, `10`, `true`, and the words
+`developer` and `production`, which carry the `dev` and `prod` enum values the
+probe offers.
 
 ### Two of these are deliberate narrowings, not bugs
 

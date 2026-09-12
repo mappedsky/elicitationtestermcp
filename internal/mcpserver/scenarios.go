@@ -42,6 +42,11 @@ type Scenario struct {
 	// than one round elicits again after the client answers, which is what
 	// exercises request-state carriage across reconnects.
 	Rounds []roundFunc `json:"-"`
+	// Echo makes the completed result repeat the submitted values verbatim,
+	// beside a canary sentence that carries its own digest. It is what makes a
+	// client's redaction visible: a client that hides those values by rewriting
+	// the result damages the canary, and the digest no longer matches.
+	Echo bool `json:"echo"`
 	// Fail returns a JSON-RPC error in place of a result. Scenarios that set
 	// it have no rounds.
 	Fail func(cfg Config) (*jsonrpc.Error, error) `json:"-"`
@@ -171,6 +176,42 @@ const (
   "title": "Acknowledgement",
   "description": "A schema with no fields at all; the only answer is the action.",
   "properties": {}
+}`
+)
+
+// CanarySentence is echoed verbatim in a redaction probe's result. Every token
+// in it is one a naive substring redaction destroys: the numbers 1 and 10, the
+// literal true, and the words developer and production, which contain the
+// three-letter enum values the probe offers.
+const CanarySentence = "Round 1 of 10, conformant true: ask the developer in production for the dev token, ratio 1.0."
+
+const (
+	schemaSecret = `{
+  "type": "object",
+  "title": "Free-text secret",
+  "description": "Type something long and distinctive. It is echoed back so you can see what the client did with it.",
+  "properties": {
+    "secret": {
+      "type": "string",
+      "title": "Secret",
+      "description": "At least 8 characters.",
+      "minLength": 8,
+      "maxLength": 64
+    }
+  },
+  "required": ["secret"]
+}`
+
+	schemaShortValues = `{
+  "type": "object",
+  "title": "Small values",
+  "description": "Every field here has a value that also occurs in ordinary text.",
+  "properties": {
+    "count":       {"type": "integer", "title": "Count", "minimum": 0, "maximum": 10, "default": 1},
+    "confirm":     {"type": "boolean", "title": "Confirm", "default": true},
+    "environment": {"type": "string",  "title": "Environment", "enum": ["dev", "prod", "test"], "default": "dev"}
+  },
+  "required": ["count", "confirm", "environment"]
 }`
 )
 
@@ -429,6 +470,23 @@ func scenarios() []Scenario {
 			Rounds: []roundFunc{func(cfg Config) (mcp.InputRequestMap, error) {
 				return requests(form("A form at the field ceiling.", wideSchema(cfg.MaxFormFields))), nil
 			}},
+		},
+
+		{
+			ID: "redaction/free_text", Kind: KindForm, Conformant: true, Echo: true,
+			Summary: "A free-text secret, echoed back beside the canary sentence.",
+			Expect: "The submitted value may be absent from the result; hiding it is a reasonable thing for a " +
+				"client to do. The canary must still hash to canary_digest. If it does not, the client removed " +
+				"the value by rewriting the whole result and damaged unrelated text doing it.",
+			Rounds: []roundFunc{round(form("Type a long, distinctive value.", schemaSecret))},
+		},
+		{
+			ID: "redaction/short_values", Kind: KindForm, Conformant: true, Echo: true,
+			Summary: "An integer, a boolean and a three-letter enum, echoed back beside the canary sentence.",
+			Expect: "The canary must still hash to canary_digest. None of these values can be hidden by " +
+				"rewriting the result: 1 and 10 are in its numbers, true is in its text, and dev and prod sit " +
+				"inside developer and production. A client that tries destroys the result it is protecting.",
+			Rounds: []roundFunc{round(form("Pick small values. Any of them will do.", schemaShortValues))},
 		},
 
 		// ---- form, outside the subset ------------------------------------

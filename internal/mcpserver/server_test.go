@@ -465,3 +465,49 @@ func TestListScenariosFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactionProbeEchoesValuesBesideAVerifiableCanary(t *testing.T) {
+	answers := &recorder{action: "accept"}
+	h := connect(t, answers, nil)
+
+	out := decode[RunOutput](t, h.call(t, "run_scenario", map[string]any{"scenario": "redaction/short_values"}))
+	if out.Status != "complete" {
+		t.Fatalf("got %+v", out)
+	}
+	// The schema's defaults are the trap values, so an unedited submission is
+	// already the interesting one: 1, true and dev.
+	for name, want := range map[string]any{"count": float64(1), "confirm": true, "environment": "dev"} {
+		if got, ok := out.Echoed[name]; !ok || got != want {
+			t.Errorf("echoed[%q] = %v, want %v", name, got, want)
+		}
+	}
+	if out.Canary != CanarySentence {
+		t.Errorf("canary = %q, want the fixed sentence", out.Canary)
+	}
+	if out.CanaryHex != digest([]byte(CanarySentence)) {
+		t.Errorf("canary_digest = %q, does not match the canary as sent", out.CanaryHex)
+	}
+	if out.CanaryOK == nil || !*out.CanaryOK {
+		t.Errorf("the server must always report the canary intact as it sends it")
+	}
+}
+
+// TestCanaryCarriesEveryTrapToken is the point of the canary: it is only a
+// probe if it actually contains the tokens a substring redaction would hit.
+func TestCanaryCarriesEveryTrapToken(t *testing.T) {
+	for _, token := range []string{"1", "10", "true", "developer", "production", "dev", "prod", "1.0"} {
+		if !strings.Contains(CanarySentence, token) {
+			t.Errorf("the canary does not contain %q, so it cannot detect that value being redacted", token)
+		}
+	}
+}
+
+func TestOnlyRedactionProbesEcho(t *testing.T) {
+	answers := &recorder{action: "accept", content: map[string]any{"token": "abcdefgh"}}
+	h := connect(t, answers, nil)
+
+	out := decode[RunOutput](t, h.call(t, "run_scenario", map[string]any{"scenario": "form/minimal"}))
+	if len(out.Echoed) != 0 || out.Canary != "" {
+		t.Errorf("a scenario that is not a redaction probe echoed values: %+v", out)
+	}
+}

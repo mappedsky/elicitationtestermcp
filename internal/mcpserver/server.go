@@ -19,7 +19,7 @@ import (
 
 const (
 	Name    = "elicitationtestermcp"
-	Version = "0.1.0"
+	Version = "0.2.0"
 
 	// protocolVersion20260728 is the first revision that forbids
 	// server-initiated elicitation requests: from here on a server must embed
@@ -215,7 +215,37 @@ type RunOutput struct {
 	Status    string            `json:"status" jsonschema:"complete when the scenario finished."`
 	Expect    string            `json:"expect" jsonschema:"What a conforming client should have done."`
 	Responses []ResponseSummary `json:"responses" jsonschema:"What the client answered in the final round."`
+	Echoed    map[string]any    `json:"echoed,omitempty" jsonschema:"The submitted values repeated verbatim. Only a redaction probe sets this."`
+	Canary    string            `json:"canary,omitempty" jsonschema:"A fixed sentence the server sent unaltered. Only a redaction probe sets this."`
+	CanaryOK  *bool             `json:"canary_intact,omitempty" jsonschema:"Whether canary still matches canary_digest as the reader received it. The server always sends true; a false reading means the client altered the result in transit."`
+	CanaryHex string            `json:"canary_digest,omitempty" jsonschema:"Digest of the canary as sent. Re-derive it from canary to prove the result was not rewritten."`
 	Note      string            `json:"note,omitempty" jsonschema:"Anything worth saying about the run."`
+}
+
+// withEcho fills in the redaction probe's fields. The canary and its digest
+// travel together so a reader needs nothing but the result to tell whether the
+// result reached it intact.
+func withEcho(out *RunOutput, scenario Scenario, logged []loggedResponse) *RunOutput {
+	if !scenario.Echo {
+		return out
+	}
+	out.Echoed = map[string]any{}
+	for _, item := range logged {
+		for name, raw := range item.Values {
+			var value any
+			if err := json.Unmarshal(raw, &value); err != nil {
+				value = string(raw)
+			}
+			out.Echoed[name] = value
+		}
+	}
+	intact := true
+	out.Canary = CanarySentence
+	out.CanaryOK = &intact
+	out.CanaryHex = digest([]byte(CanarySentence))
+	out.Note = "Re-derive canary_digest from canary. A mismatch means the client rewrote this result, " +
+		"most likely while removing the echoed values; whatever it damaged here it damaged everywhere."
+	return out
 }
 
 // ResponseSummary is one answered input request. It carries no values: the
@@ -280,6 +310,7 @@ func (s *service) deliver(
 	argsDigest := digest(req.Params.Arguments)
 	next := 0
 	var answered []ResponseSummary
+	var lastLogged []loggedResponse
 	if req.Params.RequestState != "" || len(req.Params.InputResponses) > 0 {
 		st, err := s.signer.verify(req.Params.RequestState, tool, argsDigest)
 		if err != nil {
@@ -290,7 +321,7 @@ func (s *service) deliver(
 		}
 		next = st.Round + 1
 		logged := describeResponses(req.Params.InputResponses)
-		answered = summarize(logged)
+		answered, lastLogged = summarize(logged), logged
 		s.log.append(Exchange{
 			Tool: tool, Scenario: scenario.ID, Round: st.Round + 1, Delivery: "deferred", Answered: logged,
 		})
@@ -314,11 +345,11 @@ func (s *service) deliver(
 		return &mcp.CallToolResult{InputRequests: requested, RequestState: token}, nil, nil
 	}
 
-	return nil, &RunOutput{
+	return nil, withEcho(&RunOutput{
 		Scenario: scenario.ID, Delivery: "deferred", Round: len(rounds), Rounds: len(rounds),
 		Status: "complete", Expect: scenario.Expect, Responses: answered,
 		Note: "Values are reported as digests. Call exchange_log with include_values to see what actually arrived.",
-	}, nil
+	}, scenario, lastLogged), nil
 }
 
 // deliverDirect resolves every round inside one tool call by sending
@@ -332,6 +363,7 @@ func (s *service) deliverDirect(
 	rounds []roundFunc,
 ) (*mcp.CallToolResult, *RunOutput, error) {
 	var answered []ResponseSummary
+	var lastLogged []loggedResponse
 	for index, build := range rounds {
 		requested, err := build(s.cfg)
 		if err != nil {
@@ -352,17 +384,17 @@ func (s *service) deliverDirect(
 			results[id] = result
 		}
 		logged := describeResponses(results)
-		answered = summarize(logged)
+		answered, lastLogged = summarize(logged), logged
 		s.log.append(Exchange{
 			Tool: tool, Scenario: scenario.ID, Round: index + 1, Delivery: "direct",
 			Requested: describeRequests(requested), Answered: logged,
 		})
 	}
-	return nil, &RunOutput{
+	return nil, withEcho(&RunOutput{
 		Scenario: scenario.ID, Delivery: "direct", Round: len(rounds), Rounds: len(rounds),
 		Status: "complete", Expect: scenario.Expect, Responses: answered,
 		Note: "Values are reported as digests. Call exchange_log with include_values to see what actually arrived.",
-	}, nil
+	}, scenario, lastLogged), nil
 }
 
 // resolveDelivery picks the mode. auto follows the negotiated version, which

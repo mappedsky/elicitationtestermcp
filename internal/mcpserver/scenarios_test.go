@@ -415,3 +415,22 @@ func TestReadmeListsEveryScenario(t *testing.T) {
 		}
 	}
 }
+
+// TestEchoingScenariosAreConformantForms keeps the redaction probes usable: a
+// client that refuses the schema never reaches the echo, so an echoing
+// scenario has to be one it will render.
+func TestEchoingScenariosAreConformantForms(t *testing.T) {
+	echoing := 0
+	for _, scenario := range scenarios() {
+		if !scenario.Echo {
+			continue
+		}
+		echoing++
+		if !scenario.Conformant || scenario.Kind != KindForm {
+			t.Errorf("scenario %s echoes but is %s/conformant=%v", scenario.ID, scenario.Kind, scenario.Conformant)
+		}
+	}
+	if echoing == 0 {
+		t.Error("no scenario echoes submitted values, so nothing probes a client's redaction")
+	}
+}
