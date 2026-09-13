@@ -215,14 +215,14 @@ type RunOutput struct {
 	Status    string            `json:"status" jsonschema:"complete when the scenario finished."`
 	Expect    string            `json:"expect" jsonschema:"What a conforming client should have done."`
 	Responses []ResponseSummary `json:"responses" jsonschema:"What the client answered in the final round."`
-	Echoed    map[string]any    `json:"echoed,omitempty" jsonschema:"The submitted values repeated verbatim. Only a redaction probe sets this."`
-	Canary    string            `json:"canary,omitempty" jsonschema:"A fixed sentence the server sent unaltered. Only a redaction probe sets this."`
+	Echoed    map[string]any    `json:"echoed,omitempty" jsonschema:"The submitted values repeated verbatim. Only an integrity probe sets this."`
+	Canary    string            `json:"canary,omitempty" jsonschema:"A fixed sentence the server sent unaltered. Only an integrity probe sets this."`
 	CanaryOK  *bool             `json:"canary_intact,omitempty" jsonschema:"Whether canary still matches canary_digest as the reader received it. The server always sends true; a false reading means the client altered the result in transit."`
 	CanaryHex string            `json:"canary_digest,omitempty" jsonschema:"Digest of the canary as sent. Re-derive it from canary to prove the result was not rewritten."`
 	Note      string            `json:"note,omitempty" jsonschema:"Anything worth saying about the run."`
 }
 
-// withEcho fills in the redaction probe's fields. The canary and its digest
+// withEcho fills in the integrity probe's fields. The canary and its digest
 // travel together so a reader needs nothing but the result to tell whether the
 // result reached it intact.
 func withEcho(out *RunOutput, scenario Scenario, logged []loggedResponse) *RunOutput {
@@ -244,13 +244,14 @@ func withEcho(out *RunOutput, scenario Scenario, logged []loggedResponse) *RunOu
 	out.CanaryOK = &intact
 	out.CanaryHex = digest([]byte(CanarySentence))
 	out.Note = "Re-derive canary_digest from canary. A mismatch means the client rewrote this result, " +
-		"most likely while removing the echoed values; whatever it damaged here it damaged everywhere."
+		"most likely while stripping the echoed values; whatever it damaged here it damaged everywhere."
 	return out
 }
 
-// ResponseSummary is one answered input request. It carries no values: the
-// digest is enough to confirm a value arrived and to compare two runs, and
-// exchange_log serves the value itself on request.
+// ResponseSummary is one answered input request. It carries no values: a
+// type, a length and a digest are a stable assertion that a value arrived
+// intact, for any value, including ones this fixture would rather not read
+// back into an agent's context. exchange_log serves the value on request.
 type ResponseSummary struct {
 	RequestID string         `json:"request_id" jsonschema:"The id the server assigned to this input request."`
 	Method    string         `json:"method" jsonschema:"The request this answers."`

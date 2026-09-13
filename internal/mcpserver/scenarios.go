@@ -43,9 +43,11 @@ type Scenario struct {
 	// exercises request-state carriage across reconnects.
 	Rounds []roundFunc `json:"-"`
 	// Echo makes the completed result repeat the submitted values verbatim,
-	// beside a canary sentence that carries its own digest. It is what makes a
-	// client's redaction visible: a client that hides those values by rewriting
-	// the result damages the canary, and the digest no longer matches.
+	// beside a canary sentence that carries its own digest. It is what makes
+	// a rewritten result visible: a client that strips those values out of
+	// the result damages the canary, and the digest no longer matches. What
+	// a client shows in its own transcript is its business; what it hands
+	// back must be what arrived.
 	Echo bool `json:"echo"`
 	// Fail returns a JSON-RPC error in place of a result. Scenarios that set
 	// it have no rounds.
@@ -179,9 +181,9 @@ const (
 }`
 )
 
-// CanarySentence is echoed verbatim in a redaction probe's result. Every token
-// in it is one a naive substring redaction destroys: the numbers 1 and 10, the
-// literal true, and the words developer and production, which contain the
+// CanarySentence is echoed verbatim in an integrity probe's result. Every
+// token in it is one a naive substring scrub destroys: the numbers 1 and 10,
+// the literal true, and the words developer and production, which contain the
 // three-letter enum values the probe offers.
 const CanarySentence = "Round 1 of 10, conformant true: ask the developer in production for the dev token, ratio 1.0."
 
@@ -200,6 +202,22 @@ const (
     }
   },
   "required": ["secret"]
+}`
+
+	schemaCredential = `{
+  "type": "object",
+  "title": "Upstream API key",
+  "description": "A schema no conforming server should send. It is here so a client can be looked at while it renders one.",
+  "properties": {
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "description": "The spec forbids asking for this in form mode. URL mode is where a real credential belongs.",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["api_key"]
 }`
 
 	schemaShortValues = `{
@@ -473,18 +491,29 @@ func scenarios() []Scenario {
 		},
 
 		{
-			ID: "redaction/free_text", Kind: KindForm, Conformant: true, Echo: true,
-			Summary: "A free-text secret, echoed back beside the canary sentence.",
-			Expect: "The submitted value may be absent from the result; hiding it is a reasonable thing for a " +
-				"client to do. The canary must still hash to canary_digest. If it does not, the client removed " +
-				"the value by rewriting the whole result and damaged unrelated text doing it.",
+			ID: "form/requests_credential", Kind: KindForm, Conformant: true,
+			Summary: "A form asking for an API key, which the spec forbids a server to send.",
+			Expect: "Renders. The MUST NOT is on the server, and a client cannot tell a field named api_key " +
+				"from any other string, so refusing on the label would be guesswork that misses the real " +
+				"cases. The useful client behaviour is to render it and say plainly where form values go. " +
+				"URL mode is the mechanism for a real credential.",
+			Rounds: []roundFunc{round(form("Paste the API key for the upstream service.", schemaCredential))},
+		},
+
+		{
+			ID: "integrity/free_text", Kind: KindForm, Conformant: true, Echo: true,
+			Summary: "A free-text value, echoed back beside the canary sentence.",
+			Expect: "The result comes back as sent: the echoed value intact, and the canary still hashing to " +
+				"canary_digest. A client may omit the value from what it displays, but the result it returns " +
+				"is evidence, not presentation. A mismatch means it rewrote the whole result and damaged " +
+				"unrelated text doing it.",
 			Rounds: []roundFunc{round(form("Type a long, distinctive value.", schemaSecret))},
 		},
 		{
-			ID: "redaction/short_values", Kind: KindForm, Conformant: true, Echo: true,
+			ID: "integrity/short_values", Kind: KindForm, Conformant: true, Echo: true,
 			Summary: "An integer, a boolean and a three-letter enum, echoed back beside the canary sentence.",
-			Expect: "The canary must still hash to canary_digest. None of these values can be hidden by " +
-				"rewriting the result: 1 and 10 are in its numbers, true is in its text, and dev and prod sit " +
+			Expect: "The canary must still hash to canary_digest. This is the case that shows why scrubbing a " +
+				"result cannot work: 1 and 10 are in its numbers, true is in its text, and dev and prod sit " +
 				"inside developer and production. A client that tries destroys the result it is protecting.",
 			Rounds: []roundFunc{round(form("Pick small values. Any of them will do.", schemaShortValues))},
 		},

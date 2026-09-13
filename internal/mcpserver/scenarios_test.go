@@ -416,7 +416,29 @@ func TestReadmeListsEveryScenario(t *testing.T) {
 	}
 }
 
-// TestEchoingScenariosAreConformantForms keeps the redaction probes usable: a
+// TestCredentialFormRendersRatherThanBeingRefused pins the one scenario whose
+// expectation looks backwards. The spec's MUST NOT about passwords and API
+// keys in form mode binds the *server*; it gives the client no rule to apply,
+// and no client can tell a field named api_key from any other string. Marking
+// this non-conformant would assert that a client should refuse on the label --
+// guesswork that misses every case where the field is named something else.
+func TestCredentialFormRendersRatherThanBeingRefused(t *testing.T) {
+	for _, scenario := range scenarios() {
+		if scenario.ID != "form/requests_credential" {
+			continue
+		}
+		if !scenario.Conformant {
+			t.Error("form/requests_credential must render: the spec constrains the server, not the client")
+		}
+		if scenario.Echo {
+			t.Error("form/requests_credential must not echo: it is about rendering, not result integrity")
+		}
+		return
+	}
+	t.Error("form/requests_credential is missing, so nothing covers a server breaking the form-mode rule")
+}
+
+// TestEchoingScenariosAreConformantForms keeps the integrity probes usable: a
 // client that refuses the schema never reaches the echo, so an echoing
 // scenario has to be one it will render.
 func TestEchoingScenariosAreConformantForms(t *testing.T) {
@@ -431,6 +453,6 @@ func TestEchoingScenariosAreConformantForms(t *testing.T) {
 		}
 	}
 	if echoing == 0 {
-		t.Error("no scenario echoes submitted values, so nothing probes a client's redaction")
+		t.Error("no scenario echoes submitted values, so nothing probes result integrity")
 	}
 }
