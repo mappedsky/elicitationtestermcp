@@ -11,7 +11,9 @@ read, no crash, no half-rendered form, no retry loop.
 
 The server asks for input it does not want. Nothing a client submits is kept
 beyond its length and a short digest; the values themselves are readable only
-by asking `exchange_log` for them explicitly.
+by asking `exchange_log` for them explicitly. Nothing here is a place to type a
+real secret — form mode never is, which is itself one of the things the
+catalogue has an opinion about.
 
 ## Why there are two endpoints
 
@@ -101,10 +103,12 @@ every parked elicitation dies with the container.
 | `reset_log` | Discard the log. |
 
 `run_scenario` reports each submitted value as a type, a length and a digest,
-never the value. That is deliberate: a client that redacts submitted values
-from its own transcript is behaving correctly, and this server should not undo
-that by echoing them back into the conversation. `exchange_log` with
-`include_values` is the explicit way to confirm a value arrived intact.
+never the value. That is a property of the instrument, not a claim about what a
+client should do with its own transcript: a digest is a stable assertion that a
+value arrived intact, it works the same for any value, and it keeps a fixture
+whose catalogue includes `form/injection_prose` from reading arbitrary
+submitted text back into an agent's context by default. `exchange_log` with
+`include_values` is the explicit way to see the value itself.
 
 ## The catalogue
 
@@ -124,8 +128,9 @@ the expected outcome.
 | `form/optional` | yes | No required fields. | The submit control is enabled with every field empty. |
 | `form/no_fields` | yes | An object schema with an empty properties map. | Renders as a bare acknowledgement; the only answer carried is the action. |
 | `form/max_fields` | yes | Exactly as many fields as the configured field ceiling. | Renders every field. This is the largest form the client should accept. |
-| `redaction/free_text` | yes | A free-text secret, echoed back beside the canary sentence. | The submitted value may be absent from the result; hiding it is a reasonable thing for a client to do. The canary must still hash to canary_digest. If it does not, the client removed the value by rewriting the whole result and damaged unrelated text doing it. |
-| `redaction/short_values` | yes | An integer, a boolean and a three-letter enum, echoed back beside the canary sentence. | The canary must still hash to canary_digest. None of these values can be hidden by rewriting the result: 1 and 10 are in its numbers, true is in its text, and dev and prod sit inside developer and production. A client that tries destroys the result it is protecting. |
+| `form/requests_credential` | yes | A form asking for an API key, which the spec forbids a server to send. | Renders. The MUST NOT is on the server, and a client cannot tell a field named api_key from any other string, so refusing on the label would be guesswork that misses the real cases. The useful client behaviour is to render it and say plainly where form values go. URL mode is the mechanism for a real credential. |
+| `integrity/free_text` | yes | A free-text value, echoed back beside the canary sentence. | The result comes back as sent: the echoed value intact, and the canary still hashing to canary_digest. A client may omit the value from what it displays, but the result it returns is evidence, not presentation. A mismatch means it rewrote the whole result and damaged unrelated text doing it. |
+| `integrity/short_values` | yes | An integer, a boolean and a three-letter enum, echoed back beside the canary sentence. | The canary must still hash to canary_digest. This is the case that shows why scrubbing a result cannot work: 1 and 10 are in its numbers, true is in its text, and dev and prod sit inside developer and production. A client that tries destroys the result it is protecting. |
 | `form/nested_object` | **no** | A property whose type is object. | Refused: elicitation schemas are flat. |
 | `form/multi_select` | **no** | An array-of-enum multi-select property. | Refused by a client whose subset is primitives only. The MCP spec and the Go SDK do allow this shape, so a refusal here is a deliberate narrowing, not a bug. |
 | `form/titled_enum` | **no** | A oneOf const/title enum, the successor to enumNames. | Refused by an enumNames-only client. Same deliberate narrowing as form/multi_select. |
@@ -201,21 +206,42 @@ the expected outcome.
 | `error/url_required_malformed` | **no** | A -32042 error whose data is not the documented shape. | Reported as a plain failure, without a parse error escaping to the user. |
 | `error/url_required_no_id` | **no** | A -32042 error whose elicitation has no elicitationId. | Refused or given a client-side id, as in url/no_elicitation_id. |
 
-### The redaction probes
+### The integrity probes
 
-`redaction/free_text` and `redaction/short_values` are the only scenarios whose
-result repeats what you submitted. They exist because a client that hides
-submitted values from its transcript is doing something reasonable, and the
-usual way to do it — replacing the value wherever it appears in the result —
-quietly destroys the rest.
+`integrity/free_text` and `integrity/short_values` are the only scenarios whose
+result repeats what you submitted. They test one thing: that the result a
+client returns is the result the server sent.
 
 Each result carries a fixed `canary` sentence and its `canary_digest`.
 Re-derive the digest from the sentence you received. A mismatch means the
 client rewrote the result, and whatever it damaged in the canary it damaged in
-everything else the tool returned. The sentence is chosen so a substring
-redaction cannot miss it: it contains `1`, `10`, `true`, and the words
-`developer` and `production`, which carry the `dev` and `prod` enum values the
-probe offers.
+everything else the tool returned. The sentence is chosen so a substring scrub
+cannot miss it: it contains `1`, `10`, `true`, and the words `developer` and
+`production`, which carry the `dev` and `prod` enum values the probe offers.
+
+A client may well want to keep submitted values out of its own transcript.
+That is a different thing from rewriting the result, and only one of them is
+defensible:
+
+| | Defensible | Not |
+|---|---|---|
+| **What** | What the client *persists* — its transcript, logs, traces | What the client *returns* — the tool result, model context |
+| **Why** | Retention is a separate decision from delivery | Rewriting a result corrupts data that has nothing to do with the value |
+
+`integrity/short_values` is the demonstration. Its values cannot be removed
+from the result by rewriting it, because they occur in ordinary text; a client
+that tries destroys the result it was protecting. Whatever a client shows its
+user, what it hands back has to be what arrived.
+
+The confidentiality mechanism the spec provides is not client-side scrubbing —
+it is URL mode. Form mode is specified as in-band: "Data is exposed to the
+client." Servers **MUST NOT** ask for passwords, API keys, access tokens or
+payment credentials through it, and **MUST** use URL mode when the interaction
+involves them. `form/requests_credential` is a server breaking that rule, and
+it is in the catalogue because a client cannot enforce it: the MUST NOT binds
+the server, and no client can tell a field named `api_key` from any other
+string. Rendering it while stating plainly where form values go is the honest
+behaviour; refusing on the label is guesswork that misses the real cases.
 
 ### Two of these are deliberate narrowings, not bugs
 

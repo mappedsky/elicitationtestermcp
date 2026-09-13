@@ -466,11 +466,11 @@ func TestListScenariosFilters(t *testing.T) {
 	}
 }
 
-func TestRedactionProbeEchoesValuesBesideAVerifiableCanary(t *testing.T) {
+func TestIntegrityProbeEchoesValuesBesideAVerifiableCanary(t *testing.T) {
 	answers := &recorder{action: "accept"}
 	h := connect(t, answers, nil)
 
-	out := decode[RunOutput](t, h.call(t, "run_scenario", map[string]any{"scenario": "redaction/short_values"}))
+	out := decode[RunOutput](t, h.call(t, "run_scenario", map[string]any{"scenario": "integrity/short_values"}))
 	if out.Status != "complete" {
 		t.Fatalf("got %+v", out)
 	}
@@ -493,21 +493,21 @@ func TestRedactionProbeEchoesValuesBesideAVerifiableCanary(t *testing.T) {
 }
 
 // TestCanaryCarriesEveryTrapToken is the point of the canary: it is only a
-// probe if it actually contains the tokens a substring redaction would hit.
+// probe if it actually contains the tokens a substring scrub would hit.
 func TestCanaryCarriesEveryTrapToken(t *testing.T) {
 	for _, token := range []string{"1", "10", "true", "developer", "production", "dev", "prod", "1.0"} {
 		if !strings.Contains(CanarySentence, token) {
-			t.Errorf("the canary does not contain %q, so it cannot detect that value being redacted", token)
+			t.Errorf("the canary does not contain %q, so it cannot detect that value being stripped", token)
 		}
 	}
 }
 
-func TestOnlyRedactionProbesEcho(t *testing.T) {
+func TestOnlyIntegrityProbesEcho(t *testing.T) {
 	answers := &recorder{action: "accept", content: map[string]any{"token": "abcdefgh"}}
 	h := connect(t, answers, nil)
 
 	out := decode[RunOutput](t, h.call(t, "run_scenario", map[string]any{"scenario": "form/minimal"}))
 	if len(out.Echoed) != 0 || out.Canary != "" {
-		t.Errorf("a scenario that is not a redaction probe echoed values: %+v", out)
+		t.Errorf("a scenario that is not an integrity probe echoed values: %+v", out)
 	}
 }
