@@ -48,7 +48,7 @@ func TestStateIsRejectedOutsideTheTermsItWasIssuedOn(t *testing.T) {
 			return err
 		},
 		"edited signature": func() error {
-			_, err := sign.verify(token[:len(token)-1]+"A", "run_scenario", "abc")
+			_, err := sign.verify(editSignature(token), "run_scenario", "abc")
 			return err
 		},
 	} {
@@ -89,4 +89,20 @@ func TestRandomKeysDoNotVerifyEachOther(t *testing.T) {
 	if _, err := second.verify(token, "run_scenario", "abc"); err == nil {
 		t.Error("a state signed by one process verified in another; the default key is not random")
 	}
+}
+
+// editSignature returns token carrying a signature that really is a different
+// 32 bytes. It edits the first base64 character rather than the last: 32 bytes
+// do not fill 43 base64 characters, so the final character has spare low bits
+// that the decoder ignores, and several distinct characters there decode to
+// the identical signature. Every state is signed over a fresh nonce, so a last
+// character that happened to share its value's encoding class edited nothing
+// and the tampered token verified.
+func editSignature(token string) string {
+	body, signature, _ := strings.Cut(token, ".")
+	swapped := "A"
+	if strings.HasPrefix(signature, swapped) {
+		swapped = "B"
+	}
+	return body + "." + swapped + signature[1:]
 }

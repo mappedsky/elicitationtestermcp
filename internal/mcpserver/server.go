@@ -19,7 +19,7 @@ import (
 
 const (
 	Name    = "elicitationtestermcp"
-	Version = "0.2.0"
+	Version = "0.3.0"
 
 	// protocolVersion20260728 is the first revision that forbids
 	// server-initiated elicitation requests: from here on a server must embed
